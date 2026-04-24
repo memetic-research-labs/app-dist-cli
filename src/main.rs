@@ -163,7 +163,40 @@ mod tests {
         match cli.command {
             Commands::Testers(testers::TesterCommands::Add(args)) => {
                 assert_eq!(args.app, "my-app");
-                assert_eq!(args.email, "alice@example.com");
+                assert_eq!(args.email, vec!["alice@example.com"]);
+            }
+            _ => panic!("expected Testers Add command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parse_testers_add_multiple_emails() {
+        let cli = Cli::try_parse_from([
+            "app-dist", "testers", "add",
+            "--app", "my-app",
+            "--email", "alice@example.com", "bob@example.com",
+        ]).unwrap();
+        match cli.command {
+            Commands::Testers(testers::TesterCommands::Add(args)) => {
+                assert_eq!(args.app, "my-app");
+                assert_eq!(args.email, vec!["alice@example.com", "bob@example.com"]);
+            }
+            _ => panic!("expected Testers Add command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parse_testers_add_with_file() {
+        let cli = Cli::try_parse_from([
+            "app-dist", "testers", "add",
+            "--app", "my-app",
+            "--file", "/tmp/testers.csv",
+        ]).unwrap();
+        match cli.command {
+            Commands::Testers(testers::TesterCommands::Add(args)) => {
+                assert_eq!(args.app, "my-app");
+                assert!(args.email.is_empty());
+                assert_eq!(args.file.unwrap().to_str().unwrap(), "/tmp/testers.csv");
             }
             _ => panic!("expected Testers Add command"),
         }
