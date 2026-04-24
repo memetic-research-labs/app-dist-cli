@@ -1,5 +1,7 @@
 # app-dist
 
+> **Early development — not yet in production.** This CLI is actively being built and is not ready for use. The commands and API endpoints it targets are still under development. Star the repo or watch for releases if you're interested.
+
 **Ship macOS betas with one CLI command.**
 
 `app-dist` handles the full distribution pipeline for independent macOS developers: archive, sign, notarize, package, upload, and deliver — all from your terminal.
