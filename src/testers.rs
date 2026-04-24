@@ -1,4 +1,6 @@
-use anyhow::Result;
+use std::path::PathBuf;
+
+use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 use colored::Colorize;
 use serde::Deserialize;
@@ -7,7 +9,7 @@ use crate::config::Config;
 
 #[derive(Subcommand)]
 pub enum TesterCommands {
-    /// Add a tester to an app
+    /// Add one or more testers to an app
     Add(AddArgs),
     /// List testers for an app
     List {
@@ -21,10 +23,15 @@ pub enum TesterCommands {
 
 #[derive(Args)]
 pub struct AddArgs {
+    /// App ID or slug
     #[arg(long)]
     pub app: String,
+    /// Email address(es) to add (may be specified multiple times)
+    #[arg(long, num_args = 1..)]
+    pub email: Vec<String>,
+    /// Path to a file containing email addresses (CSV, JSON, or YAML)
     #[arg(long)]
-    pub email: String,
+    pub file: Option<PathBuf>,
 }
 
 #[derive(Args)]
@@ -52,6 +59,141 @@ struct ErrorResponse {
     error: String,
 }
 
+/// Collect all email addresses from the `--email` flags and an optional `--file`.
+///
+/// Supported file formats (detected by extension):
+/// * `.json` – JSON array of strings or array of `{"email": "..."}` objects
+/// * `.yaml` / `.yml` – YAML sequence of strings or sequence of `{email: ...}` mappings
+/// * `.csv`  – one email per row; a header row named "email" is skipped automatically
+pub fn collect_emails(emails: &[String], file: Option<&PathBuf>) -> Result<Vec<String>> {
+    let mut result: Vec<String> = emails.to_vec();
+
+    if let Some(path) = file {
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+
+        let raw = std::fs::read_to_string(path)
+            .with_context(|| format!("Could not read file: {}", path.display()))?;
+
+        match ext.as_str() {
+            "json" => {
+                let val: serde_json::Value =
+                    serde_json::from_str(&raw).context("Invalid JSON in tester file")?;
+                parse_json_emails(&val, &mut result)?;
+            }
+            "yaml" | "yml" => {
+                let val: serde_yml::Value =
+                    serde_yml::from_str(&raw).context("Invalid YAML in tester file")?;
+                parse_yaml_emails(&val, &mut result)?;
+            }
+            "csv" => {
+                parse_csv_emails(&raw, &mut result)?;
+            }
+            other => {
+                anyhow::bail!(
+                    "Unsupported file extension '{}'. Use .json, .yaml, .yml, or .csv",
+                    other
+                );
+            }
+        }
+    }
+
+    // Deduplicate while preserving order
+    let mut seen = std::collections::HashSet::new();
+    result.retain(|e| seen.insert(e.to_lowercase()));
+
+    if result.is_empty() {
+        anyhow::bail!("No email addresses provided. Use --email or --file.");
+    }
+
+    Ok(result)
+}
+
+fn parse_json_emails(val: &serde_json::Value, out: &mut Vec<String>) -> Result<()> {
+    let arr = val
+        .as_array()
+        .context("JSON tester file must be a top-level array")?;
+    for item in arr {
+        if let Some(s) = item.as_str() {
+            out.push(s.to_string());
+        } else if let Some(e) = item.get("email").and_then(|v| v.as_str()) {
+            out.push(e.to_string());
+        } else {
+            anyhow::bail!("JSON array items must be strings or objects with an \"email\" key");
+        }
+    }
+    Ok(())
+}
+
+fn parse_yaml_emails(val: &serde_yml::Value, out: &mut Vec<String>) -> Result<()> {
+    let arr = val
+        .as_sequence()
+        .context("YAML tester file must be a top-level sequence")?;
+    for item in arr {
+        if let Some(s) = item.as_str() {
+            out.push(s.to_string());
+        } else if let Some(e) = item
+            .get("email")
+            .and_then(|v| v.as_str())
+        {
+            out.push(e.to_string());
+        } else {
+            anyhow::bail!("YAML sequence items must be strings or mappings with an \"email\" key");
+        }
+    }
+    Ok(())
+}
+
+fn parse_csv_emails(raw: &str, out: &mut Vec<String>) -> Result<()> {
+    let mut rdr = csv::ReaderBuilder::new()
+        .has_headers(true)
+        .flexible(true)
+        .from_reader(raw.as_bytes());
+
+    // Check whether the first column header is "email" (case-insensitive) or something else.
+    // If the header is "email" we read that column; otherwise we assume column 0 is the address.
+    let headers = rdr.headers().context("Could not read CSV headers")?.clone();
+    let email_col = headers
+        .iter()
+        .position(|h| h.trim().eq_ignore_ascii_case("email"))
+        .unwrap_or(0);
+
+    for record in rdr.records() {
+        let record = record.context("Invalid CSV record")?;
+        if let Some(field) = record.get(email_col) {
+            let trimmed = field.trim().to_string();
+            if !trimmed.is_empty() {
+                out.push(trimmed);
+            }
+        }
+    }
+
+    // If there were no headers (single-column file with no header), the csv crate
+    // still reads the first line as headers. Re-check: if none of the header values
+    // look like an email skip re-adding them (they were consumed as headers already).
+    // For files that have NO header row at all, re-parse without headers.
+    if out.is_empty() {
+        let mut rdr2 = csv::ReaderBuilder::new()
+            .has_headers(false)
+            .flexible(true)
+            .from_reader(raw.as_bytes());
+        for record in rdr2.records() {
+            let record = record.context("Invalid CSV record")?;
+            if let Some(field) = record.get(0) {
+                let trimmed = field.trim().to_string();
+                if !trimmed.is_empty() {
+                    out.push(trimmed);
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 pub async fn run(cfg: &Config, cmd: TesterCommands) -> Result<()> {
     let api_key = cfg.require_api_key()?;
     let client = reqwest::Client::new();
@@ -59,22 +201,53 @@ pub async fn run(cfg: &Config, cmd: TesterCommands) -> Result<()> {
 
     match cmd {
         TesterCommands::Add(args) => {
-            let resp = client
-                .post(format!("{}/api/v1/apps/{}/testers", cfg.api_url, args.app))
-                .header("Authorization", &auth)
-                .json(&serde_json::json!({
-                    "email": args.email,
-                }))
-                .send()
-                .await?;
+            let emails = collect_emails(&args.email, args.file.as_ref())?;
 
-            if !resp.status().is_success() {
-                let status = resp.status();
-                let body = resp.text().await.unwrap_or_default();
-                anyhow::bail!("{} {} ({})", "Error:".red().bold(), body, status);
+            let mut added = 0usize;
+            let mut failed = 0usize;
+
+            for email in &emails {
+                let resp = client
+                    .post(format!("{}/api/v1/apps/{}/testers", cfg.api_url, args.app))
+                    .header("Authorization", &auth)
+                    .json(&serde_json::json!({ "email": email }))
+                    .send()
+                    .await?;
+
+                if resp.status().is_success() {
+                    println!(
+                        "{} Added tester {} to app {}",
+                        "✓".green().bold(),
+                        email.blue(),
+                        args.app
+                    );
+                    added += 1;
+                } else {
+                    let status = resp.status();
+                    let body = resp.text().await.unwrap_or_default();
+                    eprintln!(
+                        "{} Could not add {} – {} ({})",
+                        "✗".red().bold(),
+                        email,
+                        body,
+                        status
+                    );
+                    failed += 1;
+                }
             }
 
-            println!("{} Added tester {} to app {}", "✓".green().bold(), args.email.blue(), args.app);
+            if emails.len() > 1 {
+                println!(
+                    "\n{} {} added, {} failed",
+                    "Summary:".bold(),
+                    added,
+                    failed
+                );
+            }
+
+            if failed > 0 {
+                anyhow::bail!("{} tester(s) could not be added", failed);
+            }
         }
 
         TesterCommands::List { app } => {
@@ -146,4 +319,180 @@ pub async fn run(cfg: &Config, cmd: TesterCommands) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── collect_emails: inline --email flags ──────────────────────────────────
+
+    #[test]
+    fn test_collect_emails_single() {
+        let emails = collect_emails(&["alice@example.com".to_string()], None).unwrap();
+        assert_eq!(emails, vec!["alice@example.com"]);
+    }
+
+    #[test]
+    fn test_collect_emails_multiple() {
+        let emails = collect_emails(
+            &[
+                "alice@example.com".to_string(),
+                "bob@example.com".to_string(),
+            ],
+            None,
+        )
+        .unwrap();
+        assert_eq!(emails, vec!["alice@example.com", "bob@example.com"]);
+    }
+
+    #[test]
+    fn test_collect_emails_dedup() {
+        let emails = collect_emails(
+            &[
+                "alice@example.com".to_string(),
+                "Alice@Example.COM".to_string(),
+                "bob@example.com".to_string(),
+            ],
+            None,
+        )
+        .unwrap();
+        assert_eq!(emails, vec!["alice@example.com", "bob@example.com"]);
+    }
+
+    #[test]
+    fn test_collect_emails_empty_returns_error() {
+        let err = collect_emails(&[], None).unwrap_err();
+        assert!(err.to_string().contains("No email addresses provided"));
+    }
+
+    // ── JSON parsing ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_parse_json_string_array() {
+        let mut out = Vec::new();
+        let val: serde_json::Value =
+            serde_json::from_str(r#"["alice@example.com","bob@example.com"]"#).unwrap();
+        parse_json_emails(&val, &mut out).unwrap();
+        assert_eq!(out, vec!["alice@example.com", "bob@example.com"]);
+    }
+
+    #[test]
+    fn test_parse_json_object_array() {
+        let mut out = Vec::new();
+        let val: serde_json::Value = serde_json::from_str(
+            r#"[{"email":"alice@example.com"},{"email":"bob@example.com"}]"#,
+        )
+        .unwrap();
+        parse_json_emails(&val, &mut out).unwrap();
+        assert_eq!(out, vec!["alice@example.com", "bob@example.com"]);
+    }
+
+    #[test]
+    fn test_parse_json_not_array_returns_error() {
+        let mut out = Vec::new();
+        let val: serde_json::Value = serde_json::from_str(r#"{"email":"alice@example.com"}"#).unwrap();
+        assert!(parse_json_emails(&val, &mut out).is_err());
+    }
+
+    // ── YAML parsing ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_parse_yaml_string_sequence() {
+        let mut out = Vec::new();
+        let val: serde_yml::Value =
+            serde_yml::from_str("- alice@example.com\n- bob@example.com\n").unwrap();
+        parse_yaml_emails(&val, &mut out).unwrap();
+        assert_eq!(out, vec!["alice@example.com", "bob@example.com"]);
+    }
+
+    #[test]
+    fn test_parse_yaml_object_sequence() {
+        let mut out = Vec::new();
+        let val: serde_yml::Value =
+            serde_yml::from_str("- email: alice@example.com\n- email: bob@example.com\n").unwrap();
+        parse_yaml_emails(&val, &mut out).unwrap();
+        assert_eq!(out, vec!["alice@example.com", "bob@example.com"]);
+    }
+
+    #[test]
+    fn test_parse_yaml_not_sequence_returns_error() {
+        let mut out = Vec::new();
+        let val: serde_yml::Value = serde_yml::from_str("email: alice@example.com\n").unwrap();
+        assert!(parse_yaml_emails(&val, &mut out).is_err());
+    }
+
+    // ── CSV parsing ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_parse_csv_with_header() {
+        let mut out = Vec::new();
+        parse_csv_emails("email\nalice@example.com\nbob@example.com\n", &mut out).unwrap();
+        assert_eq!(out, vec!["alice@example.com", "bob@example.com"]);
+    }
+
+    #[test]
+    fn test_parse_csv_with_name_and_email_columns() {
+        let mut out = Vec::new();
+        parse_csv_emails(
+            "name,email\nAlice,alice@example.com\nBob,bob@example.com\n",
+            &mut out,
+        )
+        .unwrap();
+        assert_eq!(out, vec!["alice@example.com", "bob@example.com"]);
+    }
+
+    #[test]
+    fn test_collect_emails_from_json_file() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("testers_test.json");
+        std::fs::write(&path, r#"["alice@example.com","bob@example.com"]"#).unwrap();
+        let emails = collect_emails(&[], Some(&path)).unwrap();
+        assert_eq!(emails, vec!["alice@example.com", "bob@example.com"]);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_collect_emails_from_yaml_file() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("testers_test.yaml");
+        std::fs::write(&path, "- alice@example.com\n- bob@example.com\n").unwrap();
+        let emails = collect_emails(&[], Some(&path)).unwrap();
+        assert_eq!(emails, vec!["alice@example.com", "bob@example.com"]);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_collect_emails_from_csv_file() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("testers_test.csv");
+        std::fs::write(&path, "email\nalice@example.com\nbob@example.com\n").unwrap();
+        let emails = collect_emails(&[], Some(&path)).unwrap();
+        assert_eq!(emails, vec!["alice@example.com", "bob@example.com"]);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_collect_emails_merge_inline_and_file() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("testers_merge_test.json");
+        std::fs::write(&path, r#"["bob@example.com","carol@example.com"]"#).unwrap();
+        let emails =
+            collect_emails(&["alice@example.com".to_string()], Some(&path)).unwrap();
+        assert_eq!(
+            emails,
+            vec!["alice@example.com", "bob@example.com", "carol@example.com"]
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_collect_emails_unsupported_extension() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("testers.txt");
+        std::fs::write(&path, "alice@example.com\n").unwrap();
+        let err = collect_emails(&[], Some(&path)).unwrap_err();
+        assert!(err.to_string().contains("Unsupported file extension"));
+        let _ = std::fs::remove_file(&path);
+    }
 }
