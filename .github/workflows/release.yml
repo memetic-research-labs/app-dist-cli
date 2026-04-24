@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Add macOS targets
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Build aarch64
+        run: cargo build --release --target aarch64-apple-darwin
+
+      - name: Build x86_64
+        run: cargo build --release --target x86_64-apple-darwin
+
+      - name: Create universal binary
+        run: |
+          mkdir -p target/universal
+          lipo -create \
+            target/aarch64-apple-darwin/release/app-dist \
+            target/x86_64-apple-darwin/release/app-dist \
+            -output target/universal/app-dist
+
+      - name: Package
+        run: |
+          cd target/universal
+          tar czf ../../app-dist-macos-universal.tar.gz app-dist
+          shasum -a 256 ../../app-dist-macos-universal.tar.gz > ../../app-dist-macos-universal.sha256
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            app-dist-macos-universal.tar.gz
+            app-dist-macos-universal.sha256
+          generate_release_notes: true
