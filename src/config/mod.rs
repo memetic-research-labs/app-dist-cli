@@ -23,9 +23,8 @@ impl Config {
         let api_url = if let Some(url) = api_url_override {
             url.to_string()
         } else {
-            std::env::var("APP_DIST_API_URL").unwrap_or_else(|_| {
-                "https://api.app-dist.com".to_string()
-            })
+            std::env::var("APP_DIST_API_URL")
+                .unwrap_or_else(|_| "https://api.app-dist.com".to_string())
         };
 
         let api_key = get_keychain_key().ok();
@@ -162,7 +161,11 @@ signing:
     let config_path = std::env::current_dir()?.join("app-dist.yml");
     std::fs::write(&config_path, &config_content)?;
     println!();
-    println!("{} Wrote config to {}", "✓".green().bold(), config_path.display());
+    println!(
+        "{} Wrote config to {}",
+        "✓".green().bold(),
+        config_path.display()
+    );
 
     if has_api_key {
         println!();
@@ -171,7 +174,10 @@ signing:
     }
 
     println!();
-    println!("{} Next step: create your app on the platform", "→".dimmed());
+    println!(
+        "{} Next step: create your app on the platform",
+        "→".dimmed()
+    );
     println!("  app-dist app create --name \"{}\"", scheme);
 
     Ok(())
@@ -189,7 +195,11 @@ fn detect_team_id() -> Option<String> {
             if let Some(paren_start) = line.find('(') {
                 if let Some(paren_end) = line[paren_start..].find(')') {
                     let id = line[paren_start + 1..paren_start + paren_end].trim();
-                    if id.len() == 10 && id.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()) {
+                    if id.len() == 10
+                        && id
+                            .chars()
+                            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+                    {
                         return Some(id.to_string());
                     }
                 }
@@ -253,7 +263,10 @@ mod tests {
     #[test]
     fn test_detect_team_id_valid() {
         let line = "  1) ABCD123456 \"Developer ID Application: Team Name (ABCD123456)\"";
-        assert_eq!(detect_team_id_from_line(line), Some("ABCD123456".to_string()));
+        assert_eq!(
+            detect_team_id_from_line(line),
+            Some("ABCD123456".to_string())
+        );
     }
 
     #[test]
@@ -275,7 +288,11 @@ mod tests {
         let paren_start = line.find('(')?;
         let paren_end = line[paren_start..].find(')')?;
         let id = line[paren_start + 1..paren_start + paren_end].trim();
-        if id.len() == 10 && id.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()) {
+        if id.len() == 10
+            && id
+                .chars()
+                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+        {
             return Some(id.to_string());
         }
         None

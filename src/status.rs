@@ -57,9 +57,15 @@ pub async fn show(cfg: &Config) -> Result<()> {
         .unwrap_or_default();
 
     println!();
-    println!("{}", "╔══════════════════════════════════════════╗".dimmed());
+    println!(
+        "{}",
+        "╔══════════════════════════════════════════╗".dimmed()
+    );
     println!("{}", "║          app-dist Dashboard             ║".dimmed());
-    println!("{}", "╚══════════════════════════════════════════╝".dimmed());
+    println!(
+        "{}",
+        "╚══════════════════════════════════════════╝".dimmed()
+    );
     println!();
     println!("  {} {}", "Account:".dimmed(), whoami.email);
     println!("  {} {}", "Plan:".dimmed(), whoami.plan);
@@ -92,7 +98,10 @@ pub async fn show(cfg: &Config) -> Result<()> {
         let mut found_any = false;
         for app in &apps {
             let resp = client
-                .get(format!("{}/api/v1/apps/{}/releases?limit=1", cfg.api_url, app.id))
+                .get(format!(
+                    "{}/api/v1/apps/{}/releases?limit=1",
+                    cfg.api_url, app.id
+                ))
                 .header("Authorization", &auth)
                 .send()
                 .await;
@@ -127,7 +136,10 @@ pub async fn show(cfg: &Config) -> Result<()> {
 
     match whoami.plan.as_str() {
         "free" => {
-            println!("  {} You're on the Free plan (1 app, 10 testers, 5 releases/month)", "Tip:".yellow());
+            println!(
+                "  {} You're on the Free plan (1 app, 10 testers, 5 releases/month)",
+                "Tip:".yellow()
+            );
         }
         _ => {}
     }

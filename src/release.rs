@@ -65,11 +65,8 @@ pub async fn run(cfg: &Config, args: ReleaseArgs) -> Result<()> {
     };
 
     let scheme = args.scheme.clone().unwrap_or_else(|| {
-        parse_yaml_field(
-            &cfg.read_project_config().unwrap_or_default(),
-            "scheme",
-        )
-        .unwrap_or_default()
+        parse_yaml_field(&cfg.read_project_config().unwrap_or_default(), "scheme")
+            .unwrap_or_default()
     });
 
     let project = args.project.clone().unwrap_or_else(|| {
@@ -81,13 +78,14 @@ pub async fn run(cfg: &Config, args: ReleaseArgs) -> Result<()> {
     });
 
     if scheme.is_empty() || project.is_empty() {
-        anyhow::bail!("Scheme and project are required. Set them in app-dist.yml or use --scheme/--project.");
+        anyhow::bail!(
+            "Scheme and project are required. Set them in app-dist.yml or use --scheme/--project."
+        );
     }
 
-    let archive_path = args.archive_path.unwrap_or_else(|| {
-        PathBuf::from("build")
-            .join(format!("{}.xcarchive", scheme))
-    });
+    let archive_path = args
+        .archive_path
+        .unwrap_or_else(|| PathBuf::from("build").join(format!("{}.xcarchive", scheme)));
 
     let version = args.version.clone().unwrap_or_else(|| {
         parse_plist_value(&archive_path, "CFBundleShortVersionString")
@@ -102,14 +100,20 @@ pub async fn run(cfg: &Config, args: ReleaseArgs) -> Result<()> {
     });
 
     if build_number == 0 {
-        anyhow::bail!("Build number is required. Set --build or ensure the archive has CFBundleVersion.");
+        anyhow::bail!(
+            "Build number is required. Set --build or ensure the archive has CFBundleVersion."
+        );
     }
 
     let out_dir = &args.out_dir;
     std::fs::create_dir_all(out_dir)?;
 
     let spinner = ProgressBar::new_spinner();
-    spinner.set_style(ProgressStyle::default_spinner().template("{spinner:.cyan} {msg}").unwrap());
+    spinner.set_style(
+        ProgressStyle::default_spinner()
+            .template("{spinner:.cyan} {msg}")
+            .unwrap(),
+    );
     spinner.enable_steady_tick(std::time::Duration::from_millis(80));
 
     if !archive_path.exists() {
@@ -269,7 +273,10 @@ pub async fn run(cfg: &Config, args: ReleaseArgs) -> Result<()> {
     spinner.set_message("Requesting upload URL...");
     let client = reqwest::Client::new();
     let resp = client
-        .post(format!("{}/api/v1/apps/{}/releases/upload-url", cfg.api_url, app_id))
+        .post(format!(
+            "{}/api/v1/apps/{}/releases/upload-url",
+            cfg.api_url, app_id
+        ))
         .header("Authorization", format!("Bearer {}", api_key))
         .json(&serde_json::json!({
             "version": version,
@@ -290,7 +297,10 @@ pub async fn run(cfg: &Config, args: ReleaseArgs) -> Result<()> {
     spinner.set_message("Uploading DMG...");
     let dmg_bytes = tokio::fs::read(&dmg_path).await?;
     let _ = client
-        .put(format!("{}/{}", upload_data.upload_base_url, upload_data.dmg_key))
+        .put(format!(
+            "{}/{}",
+            upload_data.upload_base_url, upload_data.dmg_key
+        ))
         .body(dmg_bytes)
         .send()
         .await?;
@@ -298,7 +308,10 @@ pub async fn run(cfg: &Config, args: ReleaseArgs) -> Result<()> {
     spinner.set_message("Uploading ZIP...");
     let zip_bytes = tokio::fs::read(&zip_path).await?;
     let _ = client
-        .put(format!("{}/{}", upload_data.upload_base_url, upload_data.zip_key))
+        .put(format!(
+            "{}/{}",
+            upload_data.upload_base_url, upload_data.zip_key
+        ))
         .body(zip_bytes)
         .send()
         .await?;
@@ -312,13 +325,21 @@ pub async fn run(cfg: &Config, args: ReleaseArgs) -> Result<()> {
         .map(|m| format_size(m.len()))
         .unwrap_or_default();
 
-    println!("{} Release v{} (build {}) published!", "✓".green().bold(), version, build_number);
+    println!(
+        "{} Release v{} (build {}) published!",
+        "✓".green().bold(),
+        version,
+        build_number
+    );
     println!("  DMG: {} ({})", dmg_name.cyan(), dmg_size);
     println!("  ZIP: {} ({})", zip_name.cyan(), zip_size);
     println!("  Release ID: {}", upload_data.release_id.dimmed());
     println!();
     println!("{}", "Next: invite testers".dimmed());
-    println!("  app-dist testers add --app {} --email alice@example.com", app_id);
+    println!(
+        "  app-dist testers add --app {} --email alice@example.com",
+        app_id
+    );
 
     Ok(())
 }

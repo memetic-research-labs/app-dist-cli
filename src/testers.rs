@@ -74,7 +74,12 @@ pub async fn run(cfg: &Config, cmd: TesterCommands) -> Result<()> {
                 anyhow::bail!("{} {} ({})", "Error:".red().bold(), body, status);
             }
 
-            println!("{} Added tester {} to app {}", "✓".green().bold(), args.email.blue(), args.app);
+            println!(
+                "{} Added tester {} to app {}",
+                "✓".green().bold(),
+                args.email.blue(),
+                args.app
+            );
         }
 
         TesterCommands::List { app } => {
@@ -106,7 +111,10 @@ pub async fn run(cfg: &Config, cmd: TesterCommands) -> Result<()> {
                 }
                 _ => {
                     println!("No testers yet. Add one with:");
-                    println!("  app-dist testers add --app {} --email alice@example.com", app);
+                    println!(
+                        "  app-dist testers add --app {} --email alice@example.com",
+                        app
+                    );
                 }
             }
         }
@@ -121,12 +129,19 @@ pub async fn run(cfg: &Config, cmd: TesterCommands) -> Result<()> {
             });
 
             if let Some(emails) = &args.emails {
-                let list: Vec<&str> = emails.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+                let list: Vec<&str> = emails
+                    .split(',')
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                    .collect();
                 body["emails"] = serde_json::json!(list);
             }
 
             let resp = client
-                .post(format!("{}/api/v1/apps/{}/grants/batch", cfg.api_url, args.app))
+                .post(format!(
+                    "{}/api/v1/apps/{}/grants/batch",
+                    cfg.api_url, args.app
+                ))
                 .header("Authorization", &auth)
                 .json(&body)
                 .send()
@@ -139,9 +154,20 @@ pub async fn run(cfg: &Config, cmd: TesterCommands) -> Result<()> {
             }
 
             let data: serde_json::Value = resp.json().await?;
-            let sent = data.get("grants_created").and_then(|g| g.as_u64()).unwrap_or(0);
-            let emailed = data.get("emails_sent").and_then(|e| e.as_u64()).unwrap_or(0);
-            println!("{} {} grant(s) created, {} email(s) sent", "✓".green().bold(), sent, emailed);
+            let sent = data
+                .get("grants_created")
+                .and_then(|g| g.as_u64())
+                .unwrap_or(0);
+            let emailed = data
+                .get("emails_sent")
+                .and_then(|e| e.as_u64())
+                .unwrap_or(0);
+            println!(
+                "{} {} grant(s) created, {} email(s) sent",
+                "✓".green().bold(),
+                sent,
+                emailed
+            );
         }
     }
 

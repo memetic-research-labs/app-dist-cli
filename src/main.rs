@@ -1,6 +1,6 @@
-mod config;
-mod auth;
 mod app;
+mod auth;
+mod config;
 mod release;
 mod status;
 mod testers;
@@ -9,7 +9,11 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "app-dist", version, about = "Ship macOS betas with one CLI command")]
+#[command(
+    name = "app-dist",
+    version,
+    about = "Ship macOS betas with one CLI command"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -100,11 +104,17 @@ mod tests {
     #[test]
     fn test_cli_parse_app_create() {
         let cli = Cli::try_parse_from([
-            "app-dist", "app", "create",
-            "--name", "My App",
-            "--bundle-id", "com.example.myapp",
-            "--support-email", "support@example.com",
-        ]).unwrap();
+            "app-dist",
+            "app",
+            "create",
+            "--name",
+            "My App",
+            "--bundle-id",
+            "com.example.myapp",
+            "--support-email",
+            "support@example.com",
+        ])
+        .unwrap();
         match cli.command {
             Commands::App(app::AppCommands::Create(args)) => {
                 assert_eq!(args.name, "My App");
@@ -135,13 +145,19 @@ mod tests {
     #[test]
     fn test_cli_parse_release() {
         let cli = Cli::try_parse_from([
-            "app-dist", "release",
-            "--app", "my-app",
-            "--version", "1.2.3",
-            "--build", "42",
-            "--out-dir", "/tmp/dist",
+            "app-dist",
+            "release",
+            "--app",
+            "my-app",
+            "--version",
+            "1.2.3",
+            "--build",
+            "42",
+            "--out-dir",
+            "/tmp/dist",
             "--skip-notarize",
-        ]).unwrap();
+        ])
+        .unwrap();
         match cli.command {
             Commands::Release(args) => {
                 assert_eq!(args.app, Some("my-app".to_string()));
@@ -156,10 +172,15 @@ mod tests {
     #[test]
     fn test_cli_parse_testers_add() {
         let cli = Cli::try_parse_from([
-            "app-dist", "testers", "add",
-            "--app", "my-app",
-            "--email", "alice@example.com",
-        ]).unwrap();
+            "app-dist",
+            "testers",
+            "add",
+            "--app",
+            "my-app",
+            "--email",
+            "alice@example.com",
+        ])
+        .unwrap();
         match cli.command {
             Commands::Testers(testers::TesterCommands::Add(args)) => {
                 assert_eq!(args.app, "my-app");
@@ -171,10 +192,7 @@ mod tests {
 
     #[test]
     fn test_cli_parse_testers_list() {
-        let cli = Cli::try_parse_from([
-            "app-dist", "testers", "list",
-            "--app", "my-app",
-        ]).unwrap();
+        let cli = Cli::try_parse_from(["app-dist", "testers", "list", "--app", "my-app"]).unwrap();
         match cli.command {
             Commands::Testers(testers::TesterCommands::List { app }) => {
                 assert_eq!(app, "my-app");
@@ -191,7 +209,13 @@ mod tests {
 
     #[test]
     fn test_cli_parse_api_url() {
-        let cli = Cli::try_parse_from(["app-dist", "--api-url", "https://custom.example.com", "status"]).unwrap();
+        let cli = Cli::try_parse_from([
+            "app-dist",
+            "--api-url",
+            "https://custom.example.com",
+            "status",
+        ])
+        .unwrap();
         assert_eq!(cli.api_url, Some("https://custom.example.com".to_string()));
     }
 }

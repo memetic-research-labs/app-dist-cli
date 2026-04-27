@@ -91,7 +91,12 @@ pub async fn run(cfg: &Config, cmd: AppCommands) -> Result<()> {
             }
 
             let data: CreateResponse = resp.json().await?;
-            println!("{} Created app: {} (slug: {})", "✓".green().bold(), data.app.display_name, data.app.slug);
+            println!(
+                "{} Created app: {} (slug: {})",
+                "✓".green().bold(),
+                data.app.display_name,
+                data.app.slug
+            );
             println!("  {} {}", "ID:".dimmed(), data.app.id);
             if let Some(bid) = &data.app.bundle_id {
                 println!("  {} {}", "Bundle ID:".dimmed(), bid);
@@ -141,13 +146,26 @@ pub async fn run(cfg: &Config, cmd: AppCommands) -> Result<()> {
                 .error_for_status()?;
 
             let data: AppResponse = resp.json().await?;
-            println!("{} {} ({})", "App:".green().bold(), data.display_name, data.slug);
+            println!(
+                "{} {} ({})",
+                "App:".green().bold(),
+                data.display_name,
+                data.slug
+            );
             println!("  {} {}", "ID:".dimmed(), data.id);
             if let Some(bid) = &data.bundle_id {
                 println!("  {} {}", "Bundle ID:".dimmed(), bid);
             }
             println!("  {} {}", "Pricing:".dimmed(), data.pricing_type);
-            println!("  {} {}", "Sparkle:".dimmed(), if data.sparkle_enabled == 1 { "enabled" } else { "disabled" });
+            println!(
+                "  {} {}",
+                "Sparkle:".dimmed(),
+                if data.sparkle_enabled == 1 {
+                    "enabled"
+                } else {
+                    "disabled"
+                }
+            );
             println!("  {} {}", "Created:".dimmed(), data.created_at);
         }
     }

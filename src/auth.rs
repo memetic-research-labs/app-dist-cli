@@ -52,7 +52,12 @@ pub async fn login(cfg: &Config, args: LoginArgs) -> Result<()> {
     let whoami: WhoamiResponse = resp.json().await?;
 
     set_keychain_key(&api_key)?;
-    println!("{} Authenticated as {} (plan: {})", "✓".green().bold(), whoami.email.blue(), whoami.plan);
+    println!(
+        "{} Authenticated as {} (plan: {})",
+        "✓".green().bold(),
+        whoami.email.blue(),
+        whoami.plan
+    );
     println!("  {} app(s) on this account", whoami.app_count);
 
     Ok(())
@@ -92,7 +97,10 @@ pub async fn rotate_key(cfg: &Config) -> Result<()> {
     set_keychain_key(&data.api_key)?;
     println!("{} API key rotated", "✓".green().bold());
     println!("  New prefix: {}", data.api_key_prefix.yellow());
-    println!("  {} This is the only time you'll see the full key.", "Warning:".yellow().bold());
+    println!(
+        "  {} This is the only time you'll see the full key.",
+        "Warning:".yellow().bold()
+    );
     println!("  Save it somewhere safe if needed, but it's stored in your Keychain.");
 
     Ok(())
