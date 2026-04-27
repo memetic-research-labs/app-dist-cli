@@ -163,7 +163,7 @@ mod tests {
                 assert_eq!(args.app, Some("my-app".to_string()));
                 assert_eq!(args.version, Some("1.2.3".to_string()));
                 assert_eq!(args.build, Some(42));
-                assert_eq!(args.skip_notarize, true);
+                assert!(args.skip_notarize);
             }
             _ => panic!("expected Release command"),
         }

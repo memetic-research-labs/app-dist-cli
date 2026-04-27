@@ -3,7 +3,7 @@ use clap::Args;
 use colored::Colorize;
 use indicatif::{ProgressBar, ProgressStyle};
 use serde::Deserialize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use crate::config::Config;
@@ -146,7 +146,7 @@ pub async fn run(cfg: &Config, args: ReleaseArgs) -> Result<()> {
     std::fs::create_dir_all(&export_dir)?;
 
     let export_plist = export_dir.join("ExportOptions.plist");
-    tokio::fs::write(&export_plist, format!(
+    tokio::fs::write(&export_plist,
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -155,7 +155,7 @@ pub async fn run(cfg: &Config, args: ReleaseArgs) -> Result<()> {
     <string>developer-id</string>
 </dict>
 </plist>"#
-    )).await?;
+    ).await?;
 
     if !args.skip_sign {
         let status = tokio::process::Command::new("xcodebuild")
@@ -344,7 +344,7 @@ pub async fn run(cfg: &Config, args: ReleaseArgs) -> Result<()> {
     Ok(())
 }
 
-fn find_app_in_archive(archive: &PathBuf) -> Result<PathBuf> {
+fn find_app_in_archive(archive: &Path) -> Result<PathBuf> {
     let apps_dir = archive.join("Products").join("Applications");
     for entry in std::fs::read_dir(&apps_dir)? {
         let entry = entry?;
@@ -382,7 +382,7 @@ fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> Result<()> {
     Ok(())
 }
 
-fn parse_plist_value(archive: &PathBuf, key: &str) -> Result<String> {
+fn parse_plist_value(archive: &Path, key: &str) -> Result<String> {
     let info_plist = archive.join("Info.plist");
     if !info_plist.exists() {
         let apps_dir = archive.join("Products").join("Applications");

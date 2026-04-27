@@ -134,14 +134,11 @@ pub async fn show(cfg: &Config) -> Result<()> {
 
     println!();
 
-    match whoami.plan.as_str() {
-        "free" => {
-            println!(
-                "  {} You're on the Free plan (1 app, 10 testers, 5 releases/month)",
-                "Tip:".yellow()
-            );
-        }
-        _ => {}
+    if whoami.plan.as_str() == "free" {
+        println!(
+            "  {} You're on the Free plan (1 app, 10 testers, 5 releases/month)",
+            "Tip:".yellow()
+        );
     }
 
     Ok(())
