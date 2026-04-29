@@ -24,7 +24,7 @@ struct Cli {
 }
 
 #[derive(Subcommand)]
-enum Commands {
+pub(crate) enum Commands {
     /// Authenticate with app-dist (stores API key in Keychain)
     Login(auth::LoginArgs),
     /// Show current authenticated developer info

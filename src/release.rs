@@ -36,6 +36,27 @@ pub struct ReleaseArgs {
 
     #[arg(long)]
     pub skip_sign: bool,
+
+    #[arg(long)]
+    pub github_release: bool,
+
+    #[arg(long)]
+    pub github_repo: Option<String>,
+
+    #[arg(long)]
+    pub github_tag: Option<String>,
+
+    #[arg(long)]
+    pub github_title: Option<String>,
+
+    #[arg(long)]
+    pub github_notes: Option<PathBuf>,
+
+    #[arg(long)]
+    pub github_draft: bool,
+
+    #[arg(long)]
+    pub github_prerelease: bool,
 }
 
 #[derive(Deserialize)]
@@ -325,6 +346,21 @@ pub async fn run(cfg: &Config, args: ReleaseArgs) -> Result<()> {
         .map(|m| format_size(m.len()))
         .unwrap_or_default();
 
+    let sha_name = format!("{}-{}-{}.sha256", app_name, version, build_number);
+    let sha_path = out_dir.join(&sha_name);
+    let shasum_status = tokio::process::Command::new("shasum")
+        .arg("-a")
+        .arg("256")
+        .arg(&dmg_name)
+        .arg(&zip_name)
+        .current_dir(out_dir)
+        .stdout(std::process::Stdio::piped())
+        .output()
+        .await?;
+    if shasum_status.status.success() {
+        tokio::fs::write(&sha_path, &shasum_status.stdout).await?;
+    }
+
     println!(
         "{} Release v{} (build {}) published!",
         "✓".green().bold(),
@@ -334,6 +370,75 @@ pub async fn run(cfg: &Config, args: ReleaseArgs) -> Result<()> {
     println!("  DMG: {} ({})", dmg_name.cyan(), dmg_size);
     println!("  ZIP: {} ({})", zip_name.cyan(), zip_size);
     println!("  Release ID: {}", upload_data.release_id.dimmed());
+
+    if args.github_release {
+        let gh_repo = args.github_repo.clone().unwrap_or_else(|| {
+            detect_git_remote_origin().unwrap_or_else(|| "OWNER/REPO".to_string())
+        });
+        let tag = args
+            .github_tag
+            .clone()
+            .unwrap_or_else(|| format!("v{}", version));
+        let title = args
+            .github_title
+            .clone()
+            .unwrap_or_else(|| format!("v{}", version));
+
+        let release_spinner = ProgressBar::new_spinner();
+        release_spinner.set_style(
+            ProgressStyle::default_spinner()
+                .template("{spinner:.cyan} {msg}")
+                .unwrap(),
+        );
+        release_spinner.enable_steady_tick(std::time::Duration::from_millis(80));
+
+        release_spinner.set_message(format!("Creating GitHub Release {}...", tag));
+
+        let mut cmd = tokio::process::Command::new("gh");
+        cmd.arg("release")
+            .arg("create")
+            .arg(&tag)
+            .arg("--repo")
+            .arg(&gh_repo)
+            .arg("--title")
+            .arg(&title);
+
+        if args.github_draft {
+            cmd.arg("--draft");
+        }
+        if args.github_prerelease {
+            cmd.arg("--prerelease");
+        }
+        if let Some(ref notes_path) = args.github_notes {
+            cmd.arg("--notes-file").arg(notes_path);
+        } else {
+            cmd.arg("--generate-notes");
+        }
+
+        cmd.arg(&dmg_path);
+        cmd.arg(&zip_path);
+        if sha_path.exists() {
+            cmd.arg(&sha_path);
+        }
+
+        let output = cmd.output().await?;
+        release_spinner.finish_and_clear();
+
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let release_url = stdout
+                .lines()
+                .find(|l| l.contains("https://github.com"))
+                .map(|l| l.trim().to_string())
+                .unwrap_or_else(|| format!("https://github.com/{}/releases/tag/{}", gh_repo, tag));
+            println!("  GitHub Release: {}", release_url.cyan());
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            eprintln!("{} GitHub release creation failed: {}", "Warning:".yellow().bold(), stderr);
+            eprintln!("  Run manually: gh release create {} --repo {} --title {}", tag, gh_repo, title);
+        }
+    }
+
     println!();
     println!("{}", "Next: invite testers".dimmed());
     println!(
@@ -342,6 +447,32 @@ pub async fn run(cfg: &Config, args: ReleaseArgs) -> Result<()> {
     );
 
     Ok(())
+}
+
+fn detect_git_remote_origin() -> Option<String> {
+    let output = std::process::Command::new("git")
+        .args(["remote", "get-url", "origin"])
+        .output()
+        .ok()?;
+
+    let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if url.is_empty() {
+        return None;
+    }
+
+    let cleaned = url.trim_end_matches(".git");
+
+    let repo = if cleaned.contains(':') && cleaned.starts_with("git@") {
+        cleaned.split(':').nth(1)?.to_string()
+    } else {
+        cleaned.rsplit('/').next()?.to_string()
+    };
+
+    if repo.contains('/') {
+        Some(repo)
+    } else {
+        None
+    }
 }
 
 fn find_app_in_archive(archive: &Path) -> Result<PathBuf> {
@@ -490,5 +621,67 @@ mod tests {
     fn test_parse_yaml_field_partial_match() {
         let yaml = "app_name: something";
         assert_eq!(parse_yaml_field(yaml, "app"), None);
+    }
+
+    #[test]
+    fn test_detect_git_remote_origin_https() {
+        let output = std::process::Command::new("git")
+            .args(["remote", "get-url", "origin"])
+            .output()
+            .ok();
+        if let Some(output) = output {
+            let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !url.is_empty() {
+                let result = detect_git_remote_origin();
+                assert!(result.is_some(), "Should detect git remote origin");
+                let repo = result.unwrap();
+                assert!(repo.contains('/'), "Should be in owner/repo format: {}", repo);
+                assert!(!repo.contains(':'), "Should not contain colon: {}", repo);
+            }
+        }
+    }
+
+    #[test]
+    fn test_release_args_github_flags() {
+        use clap::Parser;
+        use crate::Cli;
+        let cli = Cli::try_parse_from([
+            "app-dist", "release",
+            "--app", "my-app",
+            "--github-release",
+            "--github-repo", "owner/repo",
+            "--github-tag", "v1.0.0",
+            "--github-title", "Release v1.0.0",
+            "--github-draft",
+            "--github-prerelease",
+        ]).unwrap();
+        match cli.command {
+            crate::Commands::Release(args) => {
+                assert!(args.github_release);
+                assert_eq!(args.github_repo, Some("owner/repo".to_string()));
+                assert_eq!(args.github_tag, Some("v1.0.0".to_string()));
+                assert_eq!(args.github_title, Some("Release v1.0.0".to_string()));
+                assert!(args.github_draft);
+                assert!(args.github_prerelease);
+            }
+            _ => panic!("expected Release command"),
+        }
+    }
+
+    #[test]
+    fn test_release_args_github_release_false_by_default() {
+        use clap::Parser;
+        use crate::Cli;
+        let cli = Cli::try_parse_from(["app-dist", "release", "--app", "my-app"]).unwrap();
+        match cli.command {
+            crate::Commands::Release(args) => {
+                assert!(!args.github_release);
+                assert_eq!(args.github_repo, None);
+                assert_eq!(args.github_tag, None);
+                assert!(!args.github_draft);
+                assert!(!args.github_prerelease);
+            }
+            _ => panic!("expected Release command"),
+        }
     }
 }
